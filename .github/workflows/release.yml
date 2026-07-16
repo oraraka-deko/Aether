@@ -47,10 +47,10 @@ jobs:
           mkdir -p jniLibs/x86
           
           # Compile matching Android CPU Architectures
-          cargo ndk -t arm64-v8a -o jniLibs build --release
-          cargo ndk -t armeabi-v7a -o jniLibs build --release
-          cargo ndk -t x86_64 -o jniLibs build --release
-          cargo ndk -t x86 -o jniLibs build --release
+          cargo ndk -t arm64-v8a -o jniLibs build --release --manifest-path=../aether/Cargo.toml
+          cargo ndk -t armeabi-v7a -o jniLibs build --release --manifest-path=../aether/Cargo.toml
+          cargo ndk -t x86_64 -o jniLibs build --release --manifest-path=../aether/Cargo.toml
+          cargo ndk -t x86 -o jniLibs build --release --manifest-path=../aether/Cargo.toml
 
       - name: Compress JNI Archives
         run: |
@@ -65,113 +65,13 @@ jobs:
   # ==========================================
   # JOB 2: Build Apple macOS & iOS Libraries
   # ==========================================
-  build-apple:
-    name: Build Apple Libraries
-    runs-on: macos-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: |
-            aarch64-apple-darwin
-            x86_64-apple-darwin
-            aarch64-apple-ios
-
-      - name: Cache Cargo Dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Compile macOS Architectures
-        run: |
-          cargo build --target aarch64-apple-darwin --release
-          cargo build --target x86_64-apple-darwin --release
-
-      - name: Create Universal macOS Binary (Lipo)
-        run: |
-          mkdir -p target/universal-apple-darwin
-          lipo -create -output target/universal-apple-darwin/libaether.dylib \
-            target/aarch64-apple-darwin/release/libaether.dylib \
-            target/x86_64-apple-darwin/release/libaether.dylib
-
-      - name: Compile iOS Static Library
-        run: |
-          cargo build --target aarch64-apple-ios --release
-
-      - name: Structure and Compress Apple SDK Archive
-        run: |
-          mkdir -p apple-out/macos
-          mkdir -p apple-out/ios
-          cp target/universal-apple-darwin/libaether.dylib apple-out/macos/
-          cp target/aarch64-apple-ios/release/libaether.a apple-out/ios/
-          zip -r aether-apple-sdk.zip apple-out
-
-      - name: Upload Apple Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: apple-sdk
-          path: aether-apple-sdk.zip
-
-  # ==========================================
-  # JOB 3: Build Desktop Targets (Windows & Linux)
-  # ==========================================
-  build-desktop:
-    name: Build Desktop Artifacts (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact_name: aether-linux-x64.tar.gz
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: aether-windows-x64.zip
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache Cargo Dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Compile Desktop Targets
-        run: cargo build --target ${{ matrix.target }} --release
-
-      - name: Package Linux Desktop Tarball
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          mkdir -p linux-out
-          cp target/${{ matrix.target }}/release/libaether.so linux-out/
-          cp target/${{ matrix.target }}/release/aether linux-out/
-          tar -czvf ${{ matrix.artifact_name }} linux-out/
-
-      - name: Package Windows Desktop Zip
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path windows-out
-          Copy-Item target\${{ matrix.target }}\release\aether.dll -Destination windows-out\
-          Copy-Item target\${{ matrix.target }}\release\aether.exe -Destination windows-out\
-          Compress-Archive -Path windows-out\* -DestinationPath ${{ matrix.artifact_name }}
-
-      - name: Upload Desktop Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.os }}-build
-          path: ${{ matrix.artifact_name }}
-
+  
   # ==========================================
   # JOB 4: Collect Artifacts and Publish Release
   # ==========================================
   publish-release:
     name: Create GitHub Release
-    needs: [build-android, build-apple, build-desktop]
+    needs: [build-android]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -181,21 +81,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: android-jniLibs
-
-      - name: Download Apple Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: apple-sdk
-
-      - name: Download Linux Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ubuntu-latest-build
-
-      - name: Download Windows Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-latest-build
 
       - name: Verify Asset Structures
         run: |
@@ -207,9 +92,6 @@ jobs:
         with:
           files: |
             aether-android-jniLibs.zip
-            aether-apple-sdk.zip
-            aether-linux-x64.tar.gz
-            aether-windows-x64.zip
           draft: false
           prerelease: false
         env:
